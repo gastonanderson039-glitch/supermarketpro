@@ -49,6 +49,18 @@ app.use('/api/shops', require('./routes/shop.routes'));
 app.use('/api/products', require('./routes/product.routes'));
 app.use('/api/orders', require('./routes/order.routes'));
 app.use('/api/upload', require('./routes/upload.routes'));
+app.use('/api/categories', require('./routes/category.routes'));
+app.use('/api/reviews', require('./routes/review.routes'));
+app.use('/api/delivery', require('./routes/delivery.routes'));
+app.use('/api/payments', require('./routes/payment.routes'));
+app.use('/api/promotions', require('./routes/promotion.routes'));
+app.use('/api/inventory', require('./routes/inventory.routes'));
+app.use('/api/analytics', require('./routes/analytics.routes'));
+app.use('/api/notifications', require('./routes/notification.routes'));
+app.use('/api/settings', require('./routes/setting.routes'));
+app.use('/api/cart', require('./routes/cart.routes'));
+app.use('/api/wallet', require('./routes/wallet.routes'));
+app.use('/api/reports', require('./routes/report.routes'));
 
 // Socket.io connection
 io.on('connection', (socket) => {
@@ -59,16 +71,11 @@ io.on('connection', (socket) => {
   });
 });
 
+// Import error handler middleware
+const errorHandler = require('./middleware/error');
+
 // Global error handler
-app.use((err, req, res, next) => {
-  const statusCode = err.statusCode || 500;
-  res.status(statusCode).json({
-    status: 'error',
-    statusCode,
-    message: err.message,
-    stack: process.env.NODE_ENV === 'production' ? '🥞' : err.stack
-  });
-});
+app.use(errorHandler);
 
 // Connect to MongoDB
 const PORT = process.env.PORT || 12000;
