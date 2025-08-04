@@ -105,13 +105,14 @@ exports.getVendorShops = asyncHandler(async (req, res, next) => {
 exports.createShop = asyncHandler(async (req, res, next) => {
   // Add owner to the request body
   req.body.owner = req.user.id;
-
+  req.body.logo = req.file.filename;
+  console.log(req.file.filename)
   const shop = await Shop.create(req.body);
 
-  // Update user role to vendor if not already
-  if (req.user.role !== 'vendor') {
-    await User.findByIdAndUpdate(req.user.id, { role: 'vendor' });
-  }
+  // // Update user role to vendor if not already
+  // if (req.user.role !== 'vendor') {
+  //   await User.findByIdAndUpdate(req.user.id, { role: 'vendor' });
+  // }
 
   res.status(201).json({
     success: true,

@@ -143,6 +143,14 @@ exports.createProduct = asyncHandler(async (req, res, next) => {
     req.body.options = JSON.parse(req.body.options);
   }
 
+  console.log("req.files", req.file)
+  const images = req.files?.map(file => ({
+    url: file.filename,
+    alt: req.body.name || 'Product image'
+  })) || [];
+  req.body.images = images
+  console.log("images", images)
+
   const product = await Product.create(req.body);
 
   res.status(201).json({
@@ -172,16 +180,81 @@ exports.updateProduct = asyncHandler(async (req, res, next) => {
     return next(new ErrorResponse(`User not authorized to update this product`, 401));
   }
 
-  // Process variants if they exist
-  if (req.body.variants) {
-    req.body.variants = JSON.parse(req.body.variants);
+  // Parse JSON fields safely
+  try {
+    if (req.body.tags) {
+      // Handle nested JSON string issue from the logs
+      let tags = req.body.tags;
+      while (typeof tags === 'string') {
+        tags = JSON.parse(tags);
+        if (Array.isArray(tags)) {
+          tags = tags[0]; // Unwrap nested arrays
+        }
+      }
+      req.body.tags = Array.isArray(tags) ? tags : [];
+    }
+
+    if (req.body.variants) {
+      req.body.variants = typeof req.body.variants === 'string'
+        ? JSON.parse(req.body.variants)
+        : req.body.variants;
+    }
+
+    if (req.body.options) {
+      req.body.options = typeof req.body.options === 'string'
+        ? JSON.parse(req.body.options)
+        : req.body.options;
+    }
+  } catch (error) {
+    return next(new ErrorResponse(`Invalid JSON data format`, 400));
   }
 
-  // Process options if they exist
-  if (req.body.options) {
-    req.body.options = JSON.parse(req.body.options);
+  // Handle image updates
+  console.log("req.files",req.files )
+  if (req.files && req.files.length > 0) {
+    const newImages = req.files.map(file => ({
+      url: `/uploads/products/${file.filename}`,
+      alt: req.body.name || 'Product image'
+    }));
+
+    // Combine with existing images not being removed
+    const existingImages = req.body.existingImages
+      ? typeof req.body.existingImages === 'string'
+        ? JSON.parse(req.body.existingImages)
+        : req.body.existingImages
+      : product.images;
+
+    const removedImages = req.body.removedImages
+      ? typeof req.body.removedImages === 'string'
+        ? JSON.parse(req.body.removedImages)
+        : req.body.removedImages
+      : [];
+
+    const keptImages = existingImages.filter(img =>
+      !removedImages.includes(img.url)
+    );
+
+    req.body.images = [...keptImages, ...newImages];
+  } else if (req.body.existingImages || req.body.removedImages) {
+    // Handle case where only existing images are being modified
+    const existingImages = req.body.existingImages
+      ? typeof req.body.existingImages === 'string'
+        ? JSON.parse(req.body.existingImages)
+        : req.body.existingImages
+      : product.images;
+
+    const removedImages = req.body.removedImages
+      ? typeof req.body.removedImages === 'string'
+        ? JSON.parse(req.body.removedImages)
+        : req.body.removedImages
+      : [];
+
+    req.body.images = existingImages.filter(img =>
+      !removedImages.includes(img.url)
+    );
   }
 
+  // Update product
   product = await Product.findByIdAndUpdate(req.params.id, req.body, {
     new: true,
     runValidators: true

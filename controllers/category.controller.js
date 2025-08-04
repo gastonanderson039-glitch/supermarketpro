@@ -10,26 +10,9 @@ exports.getCategories = asyncHandler(async (req, res, next) => {
   // Executing query
   const categories = await Category.find();
   // console.log(categories)
-  // Pagination result
-  const pagination = {};
-  if (endIndex < total) {
-    pagination.next = {
-      page: page + 1,
-      limit
-    };
-  }
-
-  if (startIndex > 0) {
-    pagination.prev = {
-      page: page - 1,
-      limit
-    };
-  }
-
   res.status(200).json({
     success: true,
     count: categories.length,
-    pagination,
     data: categories
   });
 });

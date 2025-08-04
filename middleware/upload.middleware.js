@@ -71,6 +71,7 @@ const processImage = async (file) => {
 // Middleware for processing uploaded images
 const processUpload = async (req, res, next) => {
   try {
+    console.log("req.files",req.files)
     if (req.file) {
       req.file = await processImage(req.file);
     } else if (req.files) {

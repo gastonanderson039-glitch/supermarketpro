@@ -14,14 +14,14 @@ const productSchema = new mongoose.Schema(
       lowercase: true
     },
     description: String,
-    
+
     // Shop relationship
     shop: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'Shop',
       required: true
     },
-    
+
     // Pricing
     price: {
       type: Number,
@@ -30,7 +30,7 @@ const productSchema = new mongoose.Schema(
     },
     comparePrice: Number, // Original price for showing discounts
     costPrice: Number,   // What the shop paid
-    
+
     // Inventory
     stock: {
       type: Number,
@@ -40,13 +40,13 @@ const productSchema = new mongoose.Schema(
     },
     sku: String,         // Stock keeping unit
     barcode: String,
-    
+
     // Media
     images: [{
       url: String,
       alt: String
     }],
-    
+
     // Organization
     category: {
       type: mongoose.Schema.Types.ObjectId,
@@ -54,7 +54,7 @@ const productSchema = new mongoose.Schema(
       required: true
     },
     tags: [String],
-    
+
     // Product status
     isActive: {
       type: Boolean,
@@ -62,15 +62,15 @@ const productSchema = new mongoose.Schema(
     },
     isFeatured: Boolean,
     isBestseller: Boolean,
-    
+
     // Variants
     options: [{
       name: String,      // e.g. "Color", "Size"
       values: [String]   // e.g. ["Red", "Blue"], ["S", "M", "L"]
     }],
     images: [{
-      name: String,      // e.g. "Color", "Size"
-      values: [String]   // e.g. ["Red", "Blue"], ["S", "M", "L"]
+      url: String,
+      alt: String
     }],
     variants: [{
       options: {         // e.g. {Color: "Red", Size: "M"}
@@ -81,7 +81,7 @@ const productSchema = new mongoose.Schema(
       stock: Number,
       sku: String
     }],
-    
+
     // Analytics
     views: {
       type: Number,
@@ -100,15 +100,28 @@ const productSchema = new mongoose.Schema(
 );
 
 // Auto-generate slug
-productSchema.pre('save', function(next) {
+productSchema.pre('save', async function (next) {
   if (!this.slug) {
-    this.slug = this.name
+    let baseSlug = this.name
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, '-')
       .replace(/(^-|-$)/g, '');
+
+    let slug = baseSlug;
+    let counter = 1;
+
+    // Check for uniqueness
+    while (await Product.exists({ slug })) {
+      slug = `${baseSlug}-${counter}`;
+      counter++;
+    }
+
+    this.slug = slug;
   }
+
   next();
 });
+
 
 // Virtual for reviews
 productSchema.virtual('reviews', {
