@@ -1,435 +1,356 @@
 const Product = require('../models/product.model');
 const Shop = require('../models/shop.model');
+const Category = require('../models/category.model');
+const ErrorResponse = require('../utils/errorResponse');
+const asyncHandler = require('../middleware/async.middleware');
 
-// @desc    Get all products (with pagination and filtering)
-// @route   GET /api/products
-// @access  Public
-exports.getProducts = async (req, res) => {
-  try {
-    const page = parseInt(req.query.page, 10) || 1;
-    const limit = parseInt(req.query.limit, 10) || 10;
-    const skip = (page - 1) * limit;
-    
-    // Build filter object
-    const filter = { isActive: true };
-    
-    if (req.query.shop) {
-      filter.shop = req.query.shop;
-    }
-    
-    if (req.query.category) {
-      filter.category = req.query.category;
-    }
-    
-    if (req.query.subcategory) {
-      filter.subcategory = req.query.subcategory;
-    }
-    
-    if (req.query.minPrice && req.query.maxPrice) {
-      filter.price = {
-        $gte: parseFloat(req.query.minPrice),
-        $lte: parseFloat(req.query.maxPrice),
-      };
-    } else if (req.query.minPrice) {
-      filter.price = { $gte: parseFloat(req.query.minPrice) };
-    } else if (req.query.maxPrice) {
-      filter.price = { $lte: parseFloat(req.query.maxPrice) };
-    }
-    
-    if (req.query.search) {
-      filter.$text = { $search: req.query.search };
-    }
-    
-    // Execute query
-    const products = await Product.find(filter)
-      .populate('shop', 'name logo')
-      .skip(skip)
-      .limit(limit)
-      .sort(req.query.sort || '-createdAt');
-    
-    // Get total count
-    const total = await Product.countDocuments(filter);
-    
-    res.status(200).json({
-      status: 'success',
-      results: products.length,
-      totalPages: Math.ceil(total / limit),
-      currentPage: page,
-      data: products,
-    });
-  } catch (error) {
-    res.status(500).json({
-      status: 'error',
-      message: 'Server error',
-      error: error.message,
+exports.getProducts = asyncHandler(async (req, res, next) => {
+  // Advanced filtering, sorting, pagination
+  let query;
+
+  // Copy req.query
+  const reqQuery = { ...req.query };
+
+  // Fields to exclude
+  const removeFields = ['select', 'sort', 'page', 'limit', 'search'];
+
+  // Loop over removeFields and delete them from reqQuery
+  removeFields.forEach(param => delete reqQuery[param]);
+
+  // Create query string
+  let queryStr = JSON.stringify(reqQuery);
+
+  // Create operators ($gt, $gte, etc)
+  queryStr = queryStr.replace(/\b(gt|gte|lt|lte|in)\b/g, match => `$${match}`);
+
+  // Finding resource
+  query = Product.find(JSON.parse(queryStr))
+    .populate('shop', 'name slug')
+    .populate('category', 'name slug');
+
+  // Search functionality
+  if (req.query.search) {
+    query = query.find({
+      $or: [
+        { name: { $regex: req.query.search, $options: 'i' } },
+        { description: { $regex: req.query.search, $options: 'i' } }
+      ]
     });
   }
-};
 
-// @desc    Get product by ID
+  // Select fields
+  if (req.query.select) {
+    const fields = req.query.select.split(',').join(' ');
+    query = query.select(fields);
+  }
+
+  // Sort
+  if (req.query.sort) {
+    const sortBy = req.query.sort.split(',').join(' ');
+    query = query.sort(sortBy);
+  } else {
+    query = query.sort('-createdAt');
+  }
+
+  // Pagination
+  const page = parseInt(req.query.page, 10) || 1;
+  const limit = parseInt(req.query.limit, 10) || 25;
+  const startIndex = (page - 1) * limit;
+  const endIndex = page * limit;
+  const total = await Product.countDocuments();
+
+  query = query.skip(startIndex).limit(limit);
+
+  // Executing query
+  const products = await query;
+
+  // Pagination result
+  const pagination = {};
+  if (endIndex < total) {
+    pagination.next = {
+      page: page + 1,
+      limit
+    };
+  }
+
+  if (startIndex > 0) {
+    pagination.prev = {
+      page: page - 1,
+      limit
+    };
+  }
+
+  res.status(200).json({
+    success: true,
+    count: products.length,
+    pagination,
+    data: products
+  });
+});
+
+// @desc    Get single product
 // @route   GET /api/products/:id
 // @access  Public
-exports.getProductById = async (req, res) => {
-  try {
-    const product = await Product.findById(req.params.id)
-      .populate('shop', 'name logo address contactInfo');
-    
-    if (!product) {
-      return res.status(404).json({
-        status: 'fail',
-        message: 'Product not found',
-      });
-    }
-    
-    // Check if product is active or user is authorized to view
-    if (
-      !product.isActive &&
-      (!req.user ||
-        (req.user.role !== 'admin' &&
-         req.user.shopId?.toString() !== product.shop._id.toString()))
-    ) {
-      return res.status(404).json({
-        status: 'fail',
-        message: 'Product not found',
-      });
-    }
-    
-    res.status(200).json({
-      status: 'success',
-      data: product,
-    });
-  } catch (error) {
-    res.status(500).json({
-      status: 'error',
-      message: 'Server error',
-      error: error.message,
-    });
-  }
-};
+exports.getProduct = asyncHandler(async (req, res, next) => {
+  const product = await Product.findById(req.params.id)
+    .populate('shop', 'name slug logo')
+    .populate('category', 'name slug')
+    .populate('reviews');
 
-// @desc    Create a new product
-// @route   POST /api/products
-// @access  Private/Vendor/Staff
-exports.createProduct = async (req, res) => {
-  try {
-    const {
-      name,
-      description,
-      price,
-      comparePrice,
-      images,
-      category,
-      subcategory,
-      tags,
-      stock,
-      unit,
-      attributes,
-      barcode,
-      sku,
-      weight,
-      dimensions,
-      lowStockThreshold,
-    } = req.body;
-    
-    // Get shop ID from user or request body
-    const shopId = req.body.shop || req.user.shopId;
-    
-    if (!shopId) {
-      return res.status(400).json({
-        status: 'fail',
-        message: 'Shop ID is required',
-      });
-    }
-    
-    // Check if shop exists and user is authorized
-    const shop = await Shop.findById(shopId);
-    
-    if (!shop) {
-      return res.status(404).json({
-        status: 'fail',
-        message: 'Shop not found',
-      });
-    }
-    
-    // Check if user is authorized to add products to this shop
-    const isOwner = shop.owners.some(owner => owner.toString() === req.user._id.toString());
-    const isStaff = shop.staff.some(staff => staff.toString() === req.user._id.toString());
-    const isAdmin = req.user.role === 'admin';
-    
-    if (!isOwner && !isStaff && !isAdmin) {
-      return res.status(403).json({
-        status: 'fail',
-        message: 'Not authorized to add products to this shop',
-      });
-    }
-    
-    // Create new product
-    const product = await Product.create({
-      name,
-      description,
-      shop: shopId,
-      price,
-      comparePrice,
-      images,
-      category,
-      subcategory,
-      tags,
-      stock,
-      unit,
-      attributes,
-      barcode,
-      sku,
-      weight,
-      dimensions,
-      lowStockThreshold,
-    });
-    
-    res.status(201).json({
-      status: 'success',
-      data: product,
-    });
-  } catch (error) {
-    res.status(500).json({
-      status: 'error',
-      message: 'Server error',
-      error: error.message,
-    });
+  if (!product) {
+    return next(new ErrorResponse(`Product not found with id of ${req.params.id}`, 404));
   }
-};
+
+  // Increment view count
+  product.views += 1;
+  await product.save();
+
+  res.status(200).json({
+    success: true,
+    data: product
+  });
+});
+
+// @desc    Create new product
+// @route   POST /api/products
+// @access  Private (Vendor, Admin)
+exports.createProduct = asyncHandler(async (req, res, next) => {
+  // Verify shop exists and user is owner
+  const shop = await Shop.findById(req.body.shop);
+  if (!shop) {
+    return next(new ErrorResponse(`Shop not found with id of ${req.body.shop}`, 404));
+  }
+
+  // Check if user is shop owner or admin
+  if (shop.owner.toString() !== req.user.id && req.user.role !== 'admin') {
+    return next(new ErrorResponse(`User not authorized to add products to this shop`, 401));
+  }
+
+  // Verify category exists
+  const category = await Category.findById(req.body.category);
+  if (!category) {
+    return next(new ErrorResponse(`Category not found with id of ${req.body.category}`, 404));
+  }
+
+  // Process variants if they exist
+  if (req.body.variants && req.body.variants.length > 0) {
+    console.log(req.body.variants)
+    req.body.variants = JSON.parse(req.body.variants);
+  }
+
+  // Process options if they exist
+  if (req.body.options && req.body.options.length > 0) {
+    req.body.options = JSON.parse(req.body.options);
+  }
+
+  const product = await Product.create(req.body);
+
+  res.status(201).json({
+    success: true,
+    data: product
+  });
+});
 
 // @desc    Update product
 // @route   PUT /api/products/:id
-// @access  Private/Vendor/Staff
-exports.updateProduct = async (req, res) => {
-  try {
-    const product = await Product.findById(req.params.id);
-    
-    if (!product) {
-      return res.status(404).json({
-        status: 'fail',
-        message: 'Product not found',
-      });
-    }
-    
-    // Check if user is authorized to update this product
-    const shop = await Shop.findById(product.shop);
-    
-    if (!shop) {
-      return res.status(404).json({
-        status: 'fail',
-        message: 'Shop not found',
-      });
-    }
-    
-    const isOwner = shop.owners.some(owner => owner.toString() === req.user._id.toString());
-    const isStaff = shop.staff.some(staff => staff.toString() === req.user._id.toString());
-    const isAdmin = req.user.role === 'admin';
-    
-    if (!isOwner && !isStaff && !isAdmin) {
-      return res.status(403).json({
-        status: 'fail',
-        message: 'Not authorized to update this product',
-      });
-    }
-    
-    // Update product
-    const updatedProduct = await Product.findByIdAndUpdate(
-      req.params.id,
-      req.body,
-      { new: true, runValidators: true }
-    );
-    
-    res.status(200).json({
-      status: 'success',
-      data: updatedProduct,
-    });
-  } catch (error) {
-    res.status(500).json({
-      status: 'error',
-      message: 'Server error',
-      error: error.message,
-    });
+// @access  Private (Vendor, Admin)
+exports.updateProduct = asyncHandler(async (req, res, next) => {
+  let product = await Product.findById(req.params.id);
+
+  if (!product) {
+    return next(new ErrorResponse(`Product not found with id of ${req.params.id}`, 404));
   }
-};
+
+  // Verify shop exists and user is owner
+  const shop = await Shop.findById(product.shop);
+  if (!shop) {
+    return next(new ErrorResponse(`Shop not found`, 404));
+  }
+
+  // Check if user is shop owner or admin
+  if (shop.owner.toString() !== req.user.id && req.user.role !== 'admin') {
+    return next(new ErrorResponse(`User not authorized to update this product`, 401));
+  }
+
+  // Process variants if they exist
+  if (req.body.variants) {
+    req.body.variants = JSON.parse(req.body.variants);
+  }
+
+  // Process options if they exist
+  if (req.body.options) {
+    req.body.options = JSON.parse(req.body.options);
+  }
+
+  product = await Product.findByIdAndUpdate(req.params.id, req.body, {
+    new: true,
+    runValidators: true
+  });
+
+  res.status(200).json({
+    success: true,
+    data: product
+  });
+});
 
 // @desc    Delete product
 // @route   DELETE /api/products/:id
-// @access  Private/Vendor/Admin
-exports.deleteProduct = async (req, res) => {
-  try {
-    const product = await Product.findById(req.params.id);
-    
-    if (!product) {
-      return res.status(404).json({
-        status: 'fail',
-        message: 'Product not found',
-      });
-    }
-    
-    // Check if user is authorized to delete this product
-    const shop = await Shop.findById(product.shop);
-    
-    if (!shop) {
-      return res.status(404).json({
-        status: 'fail',
-        message: 'Shop not found',
-      });
-    }
-    
-    const isOwner = shop.owners.some(owner => owner.toString() === req.user._id.toString());
-    const isAdmin = req.user.role === 'admin';
-    
-    if (!isOwner && !isAdmin) {
-      return res.status(403).json({
-        status: 'fail',
-        message: 'Not authorized to delete this product',
-      });
-    }
-    
-    await product.deleteOne();
-    
-    res.status(200).json({
-      status: 'success',
-      message: 'Product deleted successfully',
-    });
-  } catch (error) {
-    res.status(500).json({
-      status: 'error',
-      message: 'Server error',
-      error: error.message,
-    });
-  }
-};
+// @access  Private (Vendor, Admin)
+exports.deleteProduct = asyncHandler(async (req, res, next) => {
+  const product = await Product.findById(req.params.id);
 
-// @desc    Update product stock
-// @route   PATCH /api/products/:id/stock
-// @access  Private/Vendor/Staff
-exports.updateStock = async (req, res) => {
-  try {
-    const { stock } = req.body;
-    
-    if (stock === undefined) {
-      return res.status(400).json({
-        status: 'fail',
-        message: 'Stock value is required',
-      });
-    }
-    
-    const product = await Product.findById(req.params.id);
-    
-    if (!product) {
-      return res.status(404).json({
-        status: 'fail',
-        message: 'Product not found',
-      });
-    }
-    
-    // Check if user is authorized to update this product
-    const shop = await Shop.findById(product.shop);
-    
-    if (!shop) {
-      return res.status(404).json({
-        status: 'fail',
-        message: 'Shop not found',
-      });
-    }
-    
-    const isOwner = shop.owners.some(owner => owner.toString() === req.user._id.toString());
-    const isStaff = shop.staff.some(staff => staff.toString() === req.user._id.toString());
-    const isAdmin = req.user.role === 'admin';
-    
-    if (!isOwner && !isStaff && !isAdmin) {
-      return res.status(403).json({
-        status: 'fail',
-        message: 'Not authorized to update this product',
-      });
-    }
-    
-    // Update stock
-    product.stock = stock;
-    await product.save();
-    
-    res.status(200).json({
-      status: 'success',
-      data: {
-        _id: product._id,
-        name: product.name,
-        stock: product.stock,
-      },
-    });
-  } catch (error) {
-    res.status(500).json({
-      status: 'error',
-      message: 'Server error',
-      error: error.message,
-    });
+  if (!product) {
+    return next(new ErrorResponse(`Product not found with id of ${req.params.id}`, 404));
   }
-};
 
-// @desc    Add product discount
-// @route   POST /api/products/:id/discount
-// @access  Private/Vendor
-exports.addDiscount = async (req, res) => {
-  try {
-    const { type, value, startDate, endDate } = req.body;
-    
-    if (!type || !value || !startDate || !endDate) {
-      return res.status(400).json({
-        status: 'fail',
-        message: 'All discount fields are required',
-      });
-    }
-    
-    const product = await Product.findById(req.params.id);
-    
-    if (!product) {
-      return res.status(404).json({
-        status: 'fail',
-        message: 'Product not found',
-      });
-    }
-    
-    // Check if user is authorized to update this product
-    const shop = await Shop.findById(product.shop);
-    
-    if (!shop) {
-      return res.status(404).json({
-        status: 'fail',
-        message: 'Shop not found',
-      });
-    }
-    
-    const isOwner = shop.owners.some(owner => owner.toString() === req.user._id.toString());
-    const isAdmin = req.user.role === 'admin';
-    
-    if (!isOwner && !isAdmin) {
-      return res.status(403).json({
-        status: 'fail',
-        message: 'Not authorized to add discounts to this product',
-      });
-    }
-    
-    // Add discount
-    const discount = {
-      type,
-      value,
-      startDate: new Date(startDate),
-      endDate: new Date(endDate),
-      isActive: true,
-    };
-    
-    product.discounts.push(discount);
-    await product.save();
-    
-    res.status(200).json({
-      status: 'success',
-      data: product,
-    });
-  } catch (error) {
-    res.status(500).json({
-      status: 'error',
-      message: 'Server error',
-      error: error.message,
-    });
+  // Verify shop exists and user is owner
+  const shop = await Shop.findById(product.shop);
+  if (!shop) {
+    return next(new ErrorResponse(`Shop not found`, 404));
   }
-};
+
+  // Check if user is shop owner or admin
+  if (shop.owner.toString() !== req.user.id && req.user.role !== 'admin') {
+    return next(new ErrorResponse(`User not authorized to delete this product`, 401));
+  }
+
+  // TODO: Delete associated images from storage
+
+  await product.remove();
+
+  res.status(200).json({
+    success: true,
+    data: {}
+  });
+});
+
+// @desc    Get products by shop
+// @route   GET /api/shops/:shopId/products
+// @access  Public
+exports.getProductsByShop = asyncHandler(async (req, res, next) => {
+  const products = await Product.find({ shop: req.params.shopId })
+    .populate('category', 'name slug');
+
+  res.status(200).json({
+    success: true,
+    count: products.length,
+    data: products
+  });
+});
+
+// @desc    Get products by category
+// @route   GET /api/categories/:categoryId/products
+// @access  Public
+exports.getProductsByCategory = asyncHandler(async (req, res, next) => {
+  const products = await Product.find({ category: req.params.categoryId })
+    .populate('shop', 'name slug');
+
+  res.status(200).json({
+    success: true,
+    count: products.length,
+    data: products
+  });
+});
+
+// @desc    Toggle product active status
+// @route   PUT /api/products/:id/status
+// @access  Private (Vendor, Admin)
+exports.toggleProductStatus = asyncHandler(async (req, res, next) => {
+  const product = await Product.findById(req.params.id);
+
+  if (!product) {
+    return next(new ErrorResponse(`Product not found with id of ${req.params.id}`, 404));
+  }
+
+  // Verify shop exists and user is owner
+  const shop = await Shop.findById(product.shop);
+  if (!shop) {
+    return next(new ErrorResponse(`Shop not found`, 404));
+  }
+
+  // Check if user is shop owner or admin
+  if (shop.owner.toString() !== req.user.id && req.user.role !== 'admin') {
+    return next(new ErrorResponse(`User not authorized to update this product`, 401));
+  }
+
+  product.isActive = !product.isActive;
+  await product.save();
+
+  res.status(200).json({
+    success: true,
+    data: product
+  });
+});
+
+// @desc    Update product inventory
+// @route   PUT /api/products/:id/inventory
+// @access  Private (Vendor, Admin)
+exports.updateInventory = asyncHandler(async (req, res, next) => {
+  const product = await Product.findById(req.params.id);
+
+  if (!product) {
+    return next(new ErrorResponse(`Product not found with id of ${req.params.id}`, 404));
+  }
+
+  // Verify shop exists and user is owner
+  const shop = await Shop.findById(product.shop);
+  if (!shop) {
+    return next(new ErrorResponse(`Shop not found`, 404));
+  }
+
+  // Check if user is shop owner or admin
+  if (shop.owner.toString() !== req.user.id && req.user.role !== 'admin') {
+    return next(new ErrorResponse(`User not authorized to update this product`, 401));
+  }
+
+  // Update main stock or variant stock
+  if (req.body.variantId) {
+    const variant = product.variants.id(req.body.variantId);
+    if (!variant) {
+      return next(new ErrorResponse(`Variant not found`, 404));
+    }
+    variant.stock = req.body.stock;
+  } else {
+    product.stock = req.body.stock;
+  }
+
+  await product.save();
+
+  res.status(200).json({
+    success: true,
+    data: product
+  });
+});
+
+// @desc    Get featured products
+// @route   GET /api/products/featured
+// @access  Public
+exports.getFeaturedProducts = asyncHandler(async (req, res, next) => {
+  const products = await Product.find({ isFeatured: true, isActive: true })
+    .limit(10)
+    .populate('shop', 'name slug')
+    .populate('category', 'name slug');
+
+  res.status(200).json({
+    success: true,
+    count: products.length,
+    data: products
+  });
+});
+
+// @desc    Get bestseller products
+// @route   GET /api/products/bestsellers
+// @access  Public
+exports.getBestsellerProducts = asyncHandler(async (req, res, next) => {
+  const products = await Product.find({ isBestseller: true, isActive: true })
+    .sort('-sales')
+    .limit(10)
+    .populate('shop', 'name slug')
+    .populate('category', 'name slug');
+
+  res.status(200).json({
+    success: true,
+    count: products.length,
+    data: products
+  });
+});

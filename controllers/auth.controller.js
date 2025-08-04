@@ -8,7 +8,7 @@ const crypto = require('crypto');
 exports.register = async (req, res) => {
   try {
     const { name, email, password, role } = req.body;
-
+    console.log(req.body)
     // Check if user already exists
     const userExists = await User.findOne({ email });
     if (userExists) {
@@ -25,7 +25,7 @@ exports.register = async (req, res) => {
       password,
       role: role || 'customer', // Default role is customer
     });
-
+    console.log(user)
     if (user) {
       // Generate JWT token
       const token = generateToken(user._id, user.role);
@@ -37,6 +37,9 @@ exports.register = async (req, res) => {
           name: user.name,
           email: user.email,
           role: user.role,
+          avatar: user.avatar,
+          preferences: user.preferences,
+          isVerified: user.isVerified,
           token,
         },
       });
@@ -47,6 +50,7 @@ exports.register = async (req, res) => {
       });
     }
   } catch (error) {
+    console.log(error)
     res.status(500).json({
       status: 'error',
       message: 'Server error',
@@ -104,6 +108,7 @@ exports.login = async (req, res) => {
         role: user.role,
         avatar: user.avatar,
         preferences: user.preferences,
+        isVerified: user.isVerified,
         token,
       },
     });

@@ -5,9 +5,10 @@ const { protect, authorize } = require('../middleware/auth.middleware');
 
 // Public routes
 router.get('/', shopController.getShops);
-router.get('/:id', shopController.getShopById);
+router.get('/:id/detail', shopController.getShopById);
 
 // Protected routes
+router.get('/vendor',protect,authorize('vendor'), shopController.getVendorShops);
 router.post('/', protect, authorize('vendor', 'admin'), shopController.createShop);
 router.put('/:id', protect, authorize('vendor', 'admin'), shopController.updateShop);
 router.delete('/:id', protect, authorize('admin'), shopController.deleteShop);

@@ -1,32 +1,23 @@
 const express = require('express');
 const router = express.Router();
-const { protect, authorize } = require('../middleware/auth');
-
-// Import controllers (to be implemented)
 const {
   getCategories,
-  getCategoryById,
+  getCategory,
   createCategory,
   updateCategory,
   deleteCategory,
-  getSubcategories,
-  getCategoryProducts
+  toggleCategoryStatus
 } = require('../controllers/category.controller');
+const { protect, authorize } = require('../middleware/auth.middleware');
 
-// Routes
-router.route('/')
-  .get(getCategories)
-  .post(protect, authorize('admin', 'vendor'), createCategory);
+// Public routes
+router.get('/', getCategories);
+router.get('/:id', getCategory);
 
-router.route('/:id')
-  .get(getCategoryById)
-  .put(protect, authorize('admin', 'vendor'), updateCategory)
-  .delete(protect, authorize('admin'), deleteCategory);
-
-router.route('/:id/subcategories')
-  .get(getSubcategories);
-
-router.route('/:id/products')
-  .get(getCategoryProducts);
+// Protected admin routes
+router.post('/', createCategory);
+router.put('/:id', protect, authorize('admin'), updateCategory);
+router.delete('/:id', protect, authorize('admin'), deleteCategory);
+router.patch('/:id/status', protect, authorize('admin'), toggleCategoryStatus);
 
 module.exports = router;

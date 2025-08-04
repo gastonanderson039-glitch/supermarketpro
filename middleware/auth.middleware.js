@@ -4,13 +4,14 @@ const User = require('../models/user.model');
 // Protect routes - Authentication middleware
 exports.protect = async (req, res, next) => {
   let token;
-
+    console.log("here")
   // Check if token exists in headers
   if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
     token = req.headers.authorization.split(' ')[1];
   }
 
   // Check if token exists
+    console.log("token",token)
   if (!token) {
     return res.status(401).json({
       status: 'fail',
@@ -24,6 +25,7 @@ exports.protect = async (req, res, next) => {
 
     // Check if user still exists
     const user = await User.findById(decoded.id);
+    console.log("user")
     if (!user) {
       return res.status(401).json({
         status: 'fail',
@@ -41,8 +43,10 @@ exports.protect = async (req, res, next) => {
 
     // Grant access to protected route
     req.user = user;
+    console.log("auth")
     next();
   } catch (error) {
+    console.log(error)
     return res.status(401).json({
       status: 'fail',
       message: 'Not authorized to access this route',
@@ -52,7 +56,9 @@ exports.protect = async (req, res, next) => {
 
 // Role-based authorization middleware
 exports.authorize = (...roles) => {
+  console.log("here 2")
   return (req, res, next) => {
+    console.log(req.user)
     if (!roles.includes(req.user.role)) {
       return res.status(403).json({
         status: 'fail',
