@@ -1,14 +1,9 @@
 const mongoose = require('mongoose');
 
-const orderSchema = new mongoose.Schema({
-  orderNumber: {
-    type: String,
-    required: true,
-    unique: true
-  },
-  customer: {
+const orderItemSchema = new mongoose.Schema({
+  product: {
     type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
+    ref: 'Product',
     required: true
   },
   shop: {
@@ -16,26 +11,28 @@ const orderSchema = new mongoose.Schema({
     ref: 'Shop',
     required: true
   },
-  items: [{
-    product: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: 'Product',
-      required: true
-    },
-    quantity: {
-      type: Number,
-      required: true,
-      min: 1
-    },
-    price: {
-      type: Number,
-      required: true
-    },
-    totalPrice: {
-      type: Number,
-      required: true
-    }
-  }],
+  quantity: {
+    type: Number,
+    required: true,
+    min: 1
+  },
+  price: {
+    type: Number,
+    required: true
+  },
+  totalPrice: {
+    type: Number,
+    required: true
+  }
+});
+
+const shopOrderSchema = new mongoose.Schema({
+  shop: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Shop',
+    required: true
+  },
+  items: [orderItemSchema],
   subtotal: {
     type: Number,
     required: true
@@ -56,16 +53,6 @@ const orderSchema = new mongoose.Schema({
     type: Number,
     required: true
   },
-  paymentMethod: {
-    type: String,
-    enum: ['cash', 'card', 'mobile_money'],
-    required: true
-  },
-  paymentStatus: {
-    type: String,
-    enum: ['pending', 'paid', 'failed', 'refunded'],
-    default: 'pending'
-  },
   status: {
     type: String,
     enum: ['pending', 'processing', 'shipped', 'delivered', 'cancelled'],
@@ -82,8 +69,36 @@ const orderSchema = new mongoose.Schema({
     type: String,
     enum: ['delivery', 'pickup'],
     default: 'delivery'
+  }
+});
+
+const orderSchema = new mongoose.Schema({
+  orderNumber: {
+    type: String,
+    required: true,
+    unique: true
   },
-  notes: String
+  customer: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true
+  },
+  shopOrders: [shopOrderSchema],
+  paymentMethod: {
+    type: String,
+    enum: ['cash', 'card', 'mobile_money'],
+    required: true
+  },
+  paymentStatus: {
+    type: String,
+    enum: ['pending', 'paid', 'failed', 'refunded'],
+    default: 'pending'
+  },
+  notes: String,
+  grandTotal: {
+    type: Number,
+    required: true
+  }
 }, {
   timestamps: true
 });
@@ -101,13 +116,17 @@ orderSchema.pre('save', async function(next) {
     
     this.orderNumber = `ORD-${year}${month}${day}-${counter.toString().padStart(4, '0')}`;
   }
+  
+  // Calculate grand total
+  this.grandTotal = this.shopOrders.reduce((sum, shopOrder) => sum + shopOrder.total, 0);
+  
   next();
 });
 
 // Indexes
 orderSchema.index({ customer: 1 });
-orderSchema.index({ shop: 1 });
-orderSchema.index({ status: 1 });
+orderSchema.index({ 'shopOrders.shop': 1 });
+orderSchema.index({ 'shopOrders.status': 1 });
 orderSchema.index({ createdAt: -1 });
 
 const Order = mongoose.model('Order', orderSchema);

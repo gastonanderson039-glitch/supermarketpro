@@ -58,7 +58,6 @@ exports.protect = async (req, res, next) => {
 
 // Role-based authorization middleware
 exports.authorize = (...roles) => {
-  console.log("here 2")
   return (req, res, next) => {
     // console.log(req.user)
     if (!roles.includes(req.user.role)) {

@@ -5,7 +5,7 @@ const {
   createOrder,
   getOrders,
   getOrder,
-  updateOrderStatus,
+  updateShopOrderStatus,
   getShopOrders,
   getCustomerOrders
 } = require('../controllers/order.controller');
@@ -16,7 +16,7 @@ router.post('/', protect, createOrder);
 // router.get('/', protect, authorize('admin'), advancedResults(Order), getOrders);
 router.get('/', protect, authorize('admin'), getOrders);
 router.get('/:id', protect, getOrder);
-router.put('/:id/status', protect, authorize('admin', 'vendor'), updateOrderStatus);
+router.put('/:orderId/status/:shopId', protect, authorize('admin', 'vendor'), updateShopOrderStatus);
 router.get('/shop/:shopId', protect, getShopOrders);
 router.get('/customer/:customerId', protect, getCustomerOrders);
 
