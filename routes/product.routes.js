@@ -14,7 +14,8 @@ const {
     toggleProductStatus,
     updateInventory,
     getFeaturedProducts,
-    getBestsellerProducts
+    getBestsellerProducts,
+    getProductsByShopWithStatics
 } = require('../controllers/product.controller');
 const { protect, authorize } = require('../middleware/auth');
 
@@ -98,6 +99,7 @@ router.get('/', getProducts);
 router.get('/featured', getFeaturedProducts);
 router.get('/bestsellers', getBestsellerProducts);
 router.get('/:id', getProduct);
+router.get('/shops-page/:shopId', getProductsByShopWithStatics);
 router.get('/shops/:shopId', getProductsByShop);
 router.get('/categories/:categoryId', getProductsByCategory);
 

@@ -5,86 +5,275 @@ const ErrorResponse = require('../utils/errorResponse');
 const asyncHandler = require('../middleware/async.middleware');
 
 exports.getProducts = asyncHandler(async (req, res, next) => {
-  // Advanced filtering, sorting, pagination
-  let query;
+  // Extract query parameters with defaults
+  const {
+    page = 1,
+    limit = 12,
+    search,
+    category,
+    minPrice,
+    maxPrice,
+    inStock,
+    sort,
+    tags,
+    isFeatured,
+    isBestseller,
+    isActive = true
+  } = req.query;
 
-  // Copy req.query
-  const reqQuery = { ...req.query };
+  // Build the base query
+  let query = {};
+  console.log(req.query)
 
-  // Fields to exclude
-  const removeFields = ['select', 'sort', 'page', 'limit', 'search'];
+  // Active products filter (default to true)
+  // query.isActive = isActive === 'true' || isActive === "undefined";
 
-  // Loop over removeFields and delete them from reqQuery
-  removeFields.forEach(param => delete reqQuery[param]);
-
-  // Create query string
-  let queryStr = JSON.stringify(reqQuery);
-
-  // Create operators ($gt, $gte, etc)
-  queryStr = queryStr.replace(/\b(gt|gte|lt|lte|in)\b/g, match => `$${match}`);
-
-  // Finding resource
-  query = Product.find(JSON.parse(queryStr))
-    .populate('shop', 'name slug')
-    .populate('category', 'name slug');
-
-  // Search functionality
-  if (req.query.search) {
-    query = query.find({
-      $or: [
-        { name: { $regex: req.query.search, $options: 'i' } },
-        { description: { $regex: req.query.search, $options: 'i' } }
-      ]
-    });
+  // Category filter
+  if (category && category !== 'undefined') {
+    query.category = category;
   }
 
-  // Select fields
-  if (req.query.select) {
-    const fields = req.query.select.split(',').join(' ');
-    query = query.select(fields);
+  // Price range filter with validation
+  if (minPrice || maxPrice) {
+    query.price = {};
+
+    // Validate and parse minPrice
+    if (minPrice) {
+      const parsedMin = Number(minPrice);
+      if (!isNaN(parsedMin)) {
+        query.price.$gte = parsedMin;
+      }
+    }
+
+    // Validate and parse maxPrice
+    if (maxPrice) {
+      const parsedMax = Number(maxPrice);
+      if (!isNaN(parsedMax)) {
+        query.price.$lte = parsedMax;
+      }
+    }
+
+    // Remove price filter if both values are invalid
+    if (Object.keys(query.price).length === 0) {
+      delete query.price;
+    }
   }
 
-  // Sort
-  if (req.query.sort) {
-    const sortBy = req.query.sort.split(',').join(' ');
-    query = query.sort(sortBy);
+  // Stock availability filter
+  if (inStock === 'true') {
+    query.stock = { $gt: 0 };
+  }
+
+  // Tags filter (supports multiple tags)
+  if (tags) {
+    query.tags = Array.isArray(tags) ? { $all: tags } : tags;
+  }
+
+  // Featured products filter
+  if (isFeatured && isFeatured !== 'false') {
+    query.isFeatured = isFeatured === 'true';
+  }
+
+  // Bestseller products filter
+  if (isBestseller && isBestseller !== 'false') {
+    query.isBestseller = isBestseller === 'true';
+  }
+
+  // Text search (name or description)
+  if (search && search !== 'undefined') {
+    query.$or = [
+      { name: { $regex: search, $options: 'i' } },
+      { description: { $regex: search, $options: 'i' } }
+    ];
+  }
+
+  console.log(query)
+
+  // Build the database query
+  let dbQuery = Product.find(query)
+    .populate('shop', 'name slug logo')
+    .populate('category', 'name slug')
+    .lean();
+
+  // Sorting
+  const sortOptions = {
+    'price-asc': { price: 1 },
+    'price-desc': { price: -1 },
+    newest: { createdAt: -1 },
+    bestselling: { salesCount: -1 },
+    rating: { averageRating: -1 }
+  };
+
+  if (sort && sortOptions[sort]) {
+    dbQuery = dbQuery.sort(sortOptions[sort]);
   } else {
-    query = query.sort('-createdAt');
+    dbQuery = dbQuery.sort({ createdAt: -1 }); // Default sort by newest
   }
 
   // Pagination
-  const page = parseInt(req.query.page, 10) || 1;
-  const limit = parseInt(req.query.limit, 10) || 25;
-  const startIndex = (page - 1) * limit;
-  const endIndex = page * limit;
-  const total = await Product.countDocuments();
+  const pageNumber = parseInt(page, 10);
+  const limitNumber = parseInt(limit, 10);
+  const skip = (pageNumber - 1) * limitNumber;
 
-  query = query.skip(startIndex).limit(limit);
+  // Get total count for pagination
+  const total = await Product.countDocuments(query);
 
-  // Executing query
-  const products = await query;
+  // Apply pagination
+  dbQuery = dbQuery.skip(skip).limit(limitNumber);
 
-  // Pagination result
-  const pagination = {};
-  if (endIndex < total) {
-    pagination.next = {
-      page: page + 1,
-      limit
-    };
-  }
+  // Execute query
+  const products = await dbQuery;
 
-  if (startIndex > 0) {
-    pagination.prev = {
-      page: page - 1,
-      limit
-    };
-  }
+  // Calculate total pages
+  const totalPages = Math.ceil(total / limitNumber);
 
+  // Format response to match frontend expectations
   res.status(200).json({
     success: true,
-    count: products.length,
-    pagination,
-    data: products
+    products,
+    total,
+    page: pageNumber,
+    limit: limitNumber,
+    totalPages,
+    hasNextPage: pageNumber < totalPages,
+    hasPreviousPage: pageNumber > 1
+  });
+});
+
+exports.getProductsByShopWithStatics = asyncHandler(async (req, res, next) => {
+  // Extract query parameters with defaults
+  const {
+    page = 1,
+    limit = 12,
+    search,
+    category,
+    minPrice,
+    maxPrice,
+    inStock,
+    sort,
+    tags,
+    isFeatured,
+    isBestseller,
+    isActive = true
+  } = req.query;
+
+  // Build the base query
+  let query = {};
+  console.log(req.query)
+
+  // Active products filter (default to true)
+  // query.isActive = isActive === 'true' || isActive === "undefined";
+  query.shop = req.params.shopId;
+
+  // Category filter
+  if (category && category !== 'undefined') {
+    query.category = category;
+  }
+
+  // Price range filter with validation
+  if (minPrice || maxPrice) {
+    query.price = {};
+
+    // Validate and parse minPrice
+    if (minPrice) {
+      const parsedMin = Number(minPrice);
+      if (!isNaN(parsedMin)) {
+        query.price.$gte = parsedMin;
+      }
+    }
+
+    // Validate and parse maxPrice
+    if (maxPrice) {
+      const parsedMax = Number(maxPrice);
+      if (!isNaN(parsedMax)) {
+        query.price.$lte = parsedMax;
+      }
+    }
+
+    // Remove price filter if both values are invalid
+    if (Object.keys(query.price).length === 0) {
+      delete query.price;
+    }
+  }
+
+  // Stock availability filter
+  if (inStock === 'true') {
+    query.stock = { $gt: 0 };
+  }
+
+  // Tags filter (supports multiple tags)
+  if (tags) {
+    query.tags = Array.isArray(tags) ? { $all: tags } : tags;
+  }
+
+  // Featured products filter
+  // if (isFeatured && isFeatured !== 'false') {
+  //   query.isFeatured = isFeatured === 'true';
+  // }
+
+  // // Bestseller products filter
+  // if (isBestseller && isBestseller !== 'false') {
+  //   query.isBestseller = isBestseller === 'true';
+  // }
+
+  // Text search (name or description)
+  if (search && search !== 'undefined') {
+    query.$or = [
+      { name: { $regex: search, $options: 'i' } },
+      { description: { $regex: search, $options: 'i' } }
+    ];
+  }
+
+  console.log(query)
+
+  // Build the database query
+  let dbQuery = Product.find(query)
+    .populate('shop', 'name slug logo')
+    .populate('category', 'name slug')
+    .lean();
+
+  // Sorting
+  const sortOptions = {
+    'price-asc': { price: 1 },
+    'price-desc': { price: -1 },
+    newest: { createdAt: -1 },
+    bestselling: { salesCount: -1 },
+    rating: { averageRating: -1 }
+  };
+
+  if (sort && sortOptions[sort]) {
+    dbQuery = dbQuery.sort(sortOptions[sort]);
+  } else {
+    dbQuery = dbQuery.sort({ createdAt: -1 }); // Default sort by newest
+  }
+
+  // Pagination
+  const pageNumber = parseInt(page, 10);
+  const limitNumber = parseInt(limit, 10);
+  const skip = (pageNumber - 1) * limitNumber;
+
+  // Get total count for pagination
+  const total = await Product.countDocuments(query);
+
+  // Apply pagination
+  dbQuery = dbQuery.skip(skip).limit(limitNumber);
+
+  // Execute query
+  const products = await dbQuery;
+
+  // Calculate total pages
+  const totalPages = Math.ceil(total / limitNumber);
+
+  // Format response to match frontend expectations
+  res.status(200).json({
+    success: true,
+    products,
+    total,
+    page: pageNumber,
+    limit: limitNumber,
+    totalPages,
+    hasNextPage: pageNumber < totalPages,
+    hasPreviousPage: pageNumber > 1
   });
 });
 
@@ -210,7 +399,7 @@ exports.updateProduct = asyncHandler(async (req, res, next) => {
   }
 
   // Handle image updates
-  console.log("req.files",req.files )
+  console.log("req.files", req.files)
   if (req.files && req.files.length > 0) {
     const newImages = req.files.map(file => ({
       url: `/uploads/products/${file.filename}`,
@@ -302,7 +491,7 @@ exports.deleteProduct = asyncHandler(async (req, res, next) => {
 // @access  Public
 exports.getProductsByShop = asyncHandler(async (req, res, next) => {
   const products = await Product.find({ shop: req.params.shopId })
-    .populate('category', 'name slug');
+    .populate('category', 'name slug')
 
   res.status(200).json({
     success: true,
@@ -315,9 +504,17 @@ exports.getProductsByShop = asyncHandler(async (req, res, next) => {
 // @route   GET /api/categories/:categoryId/products
 // @access  Public
 exports.getProductsByCategory = asyncHandler(async (req, res, next) => {
-  const products = await Product.find({ category: req.params.categoryId })
-    .populate('shop', 'name slug');
+  const {
+    limit = 4,
+  } = req.query;
 
+  let dbQuery = await Product.find({ category: req.params.categoryId })
+    .populate('shop', 'name slug logo')
+    .populate('category', 'name slug')
+    .lean().limit(limit);
+
+  // Execute query
+  const products = await dbQuery;
   res.status(200).json({
     success: true,
     count: products.length,
