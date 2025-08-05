@@ -38,9 +38,14 @@ const shopSchema = new mongoose.Schema(
       },
       role: {
         type: String,
-        enum: ['manager', 'cashier', 'inventory_manager', 'other']
+        enum: ['manager', 'cashier', 'inventory_manager', 'delivery_personnel']
       },
-      permissions: [String]
+      permissions: [String],
+      joinDate: { type: Date, default: Date.now },
+      active: {
+        type: Boolean,
+        default: true
+      }
     }],
     deliveryPersonnel: [{
       user: {
@@ -81,6 +86,16 @@ shopSchema.virtual('products', {
   localField: '_id',
   foreignField: 'shop'
 });
+// Add to your shop schema
+shopSchema.virtual('staffMembers', {
+  ref: 'User',
+  localField: 'staff.user',
+  foreignField: '_id',
+  justOne: false
+});
+
+// Add index for staff
+shopSchema.index({ 'staff.user': 1 });
 
 // Indexes
 shopSchema.index({ name: 'text', description: 'text' });

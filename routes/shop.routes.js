@@ -72,11 +72,42 @@ router.get('/vendor', protect, authorize('vendor'), shopController.getVendorShop
 // router.post('/', protect,
 //     upload.single('image'),
 //     authorize('vendor', 'admin'), shopController.createShop);
-router.put('/:id', protect, authorize('vendor', 'admin'), shopController.updateShop);
+router.put('/:id', protect, authorize('vendor', 'admin'),
+ (req, res, next) => {
+    upload(req, res, function(err) {
+      if (err instanceof multer.MulterError) {
+        // A Multer error occurred when uploading
+        return res.status(400).json({ message: err.message });
+      } else if (err) {
+        // An unknown error occurred
+        return res.status(500).json({ message: err.message });
+      }
+      // Everything went fine, proceed to controller
+      next();
+    });
+  }, shopController.updateShop);
 router.delete('/:id', protect, authorize('admin'), shopController.deleteShop);
 
-// Staff management
-router.post('/:id/staff', protect, authorize('vendor', 'admin'), shopController.addStaff);
-router.delete('/:id/staff/:userId', protect, authorize('vendor', 'admin'), shopController.removeStaff);
+// // Staff management
+// router.post('/:id/staff', protect, authorize('vendor', 'admin'), shopController.addStaff);
+// router.delete('/:id/staff/:userId', protect, authorize('vendor', 'admin'), shopController.removeStaff);
 
+// Staff management routes
+router.route('/:shopId/staff')
+  .get(protect, shopController.getStaff)
+  .post(protect, authorize('vendor', 'admin'), shopController.addStaff);
+
+router.route('/:shopId/staff/:staffId')
+  .put(protect, authorize('vendor', 'admin'), shopController.updateStaff)
+  .delete(protect, authorize('vendor', 'admin'), shopController.removeStaff);
+
+const {
+  getShopStats,
+  getProductAnalytics
+} = require('../controllers/stats.controller');
+
+router.get('/:id/stats', protect, authorize('vendor', 'admin'), getShopStats);
+router.get('/:id/analytics/products', protect, authorize('vendor', 'admin'), getProductAnalytics);
+
+module.exports = router;
 module.exports = router;

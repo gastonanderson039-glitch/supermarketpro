@@ -71,6 +71,7 @@ exports.getShops = asyncHandler(async (req, res, next) => {
 // @route   GET /api/shops/:id/detail
 // @access  Public
 exports.getShopById = asyncHandler(async (req, res, next) => {
+  console.log(req.params.id)
   const shop = await Shop.findById(req.params.id)
     .populate('owner', 'name email')
     .populate('staff.user', 'name email role')
@@ -79,7 +80,7 @@ exports.getShopById = asyncHandler(async (req, res, next) => {
   if (!shop) {
     return next(new ErrorResponse(`Shop not found with id of ${req.params.id}`, 404));
   }
-
+  console.log(shop)
   res.status(200).json({
     success: true,
     data: shop
@@ -134,7 +135,7 @@ exports.updateShop = asyncHandler(async (req, res, next) => {
   if (shop.owner.toString() !== req.user.id && req.user.role !== 'admin') {
     return next(new ErrorResponse(`User ${req.user.id} is not authorized to update this shop`, 401));
   }
-
+  req.body.logo = req.file.filename;
   shop = await Shop.findByIdAndUpdate(req.params.id, req.body, {
     new: true,
     runValidators: true
@@ -227,5 +228,122 @@ exports.removeStaff = asyncHandler(async (req, res, next) => {
   res.status(200).json({
     success: true,
     data: shop
+  });
+});
+
+
+// @desc    Add staff member
+// @route   POST /api/shops/:shopId/staff
+exports.addStaff = asyncHandler(async (req, res, next) => {
+  const shop = await Shop.findById(req.params.shopId);
+  
+  if (!shop) {
+    return next(new ErrorResponse(`Shop not found with id ${req.params.shopId}`, 404));
+  }
+
+  // Verify user is shop owner or admin
+  if (shop.owner.toString() !== req.user.id && req.user.role !== 'admin') {
+    return next(new ErrorResponse(`Not authorized to add staff`, 401));
+  }
+
+  const { user, role, permissions } = req.body;
+
+  // Check if user already exists in staff
+  const existingStaff = shop.staff.find(s => s.user.toString() === user);
+  if (existingStaff) {
+    return next(new ErrorResponse(`User already exists in staff`, 400));
+  }
+
+  shop.staff.push({ user, role, permissions });
+  await shop.save();
+
+  res.status(200).json({
+    success: true,
+    data: shop
+  });
+});
+
+// @desc    Update staff member
+// @route   PUT /api/shops/:shopId/staff/:staffId
+exports.updateStaff = asyncHandler(async (req, res, next) => {
+  const shop = await Shop.findById(req.params.shopId);
+  
+  if (!shop) {
+    return next(new ErrorResponse(`Shop not found`, 404));
+  }
+
+  // Verify user is shop owner or admin
+  if (shop.owner.toString() !== req.user.id && req.user.role !== 'admin') {
+    return next(new ErrorResponse(`Not authorized to update staff`, 401));
+  }
+
+  const staffIndex = shop.staff.findIndex(
+    s => s._id.toString() === req.params.staffId
+  );
+
+  if (staffIndex === -1) {
+    return next(new ErrorResponse(`Staff member not found`, 404));
+  }
+
+  const { role, permissions } = req.body;
+  
+  if (role) shop.staff[staffIndex].role = role;
+  if (permissions) shop.staff[staffIndex].permissions = permissions;
+  
+  await shop.save();
+
+  res.status(200).json({
+    success: true,
+    data: shop
+  });
+});
+
+// @desc    Remove staff member
+// @route   DELETE /api/shops/:shopId/staff/:staffId
+exports.removeStaff = asyncHandler(async (req, res, next) => {
+  const shop = await Shop.findById(req.params.shopId);
+  
+  if (!shop) {
+    return next(new ErrorResponse(`Shop not found`, 404));
+  }
+
+  // Verify user is shop owner or admin
+  if (shop.owner.toString() !== req.user.id && req.user.role !== 'admin') {
+    return next(new ErrorResponse(`Not authorized to remove staff`, 401));
+  }
+
+  shop.staff = shop.staff.filter(
+    s => s._id.toString() !== req.params.staffId
+  );
+  
+  await shop.save();
+
+  res.status(200).json({
+    success: true,
+    data: shop
+  });
+});
+
+// @desc    Get all staff members
+// @route   GET /api/shops/:shopId/staff
+exports.getStaff = asyncHandler(async (req, res, next) => {
+  const shop = await Shop.findById(req.params.shopId)
+    .populate('staff.user', 'name email role');
+  
+  if (!shop) {
+    return next(new ErrorResponse(`Shop not found`, 404));
+  }
+
+  // Verify user is shop owner, admin or staff member
+  const isStaff = shop.staff.some(s => s.user.toString() === req.user.id);
+  if (shop.owner.toString() !== req.user.id && 
+      req.user.role !== 'admin' && 
+      !isStaff) {
+    return next(new ErrorResponse(`Not authorized to view staff`, 401));
+  }
+
+  res.status(200).json({
+    success: true,
+    data: shop.staff
   });
 });

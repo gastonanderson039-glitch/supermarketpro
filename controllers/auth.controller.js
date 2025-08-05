@@ -64,6 +64,7 @@ exports.register = async (req, res) => {
 // @access  Public
 exports.login = async (req, res) => {
   try {
+    console.log(req.body)
     const { email, password } = req.body;
 
     // Check if user exists
@@ -113,6 +114,7 @@ exports.login = async (req, res) => {
       },
     });
   } catch (error) {
+    console.log(error)
     res.status(500).json({
       status: 'error',
       message: 'Server error',
