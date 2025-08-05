@@ -62,7 +62,10 @@ const productSchema = new mongoose.Schema(
     },
     isFeatured: Boolean,
     isBestseller: Boolean,
-
+    has3DModel: {
+      type: Boolean,
+      default: false
+    },
     // Variants
     options: [{
       name: String,      // e.g. "Color", "Size"
